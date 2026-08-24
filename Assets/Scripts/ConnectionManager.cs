@@ -9,6 +9,7 @@ public class ConnectionManager : MonoBehaviour
     [SerializeField] private Button _quitButton;
     [SerializeField] private GameObject _disconnectedPanel;
     [SerializeField] private TextMeshProUGUI _disconnectedText;
+    [SerializeField] private GameObject _menuPanel; 
 
     private Coroutine _hidePopupCoroutine;
 
@@ -88,5 +89,8 @@ public class ConnectionManager : MonoBehaviour
     private void ReturnToMenu()
     {
         Debug.Log("Returned to menu after disconnect.");
+        if (_menuPanel != null) _menuPanel.SetActive(true); 
     }
+
+    
 }
