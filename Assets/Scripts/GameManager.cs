@@ -16,6 +16,11 @@ public class GameManager : NetworkBehaviour
     [SerializeField] private TextMeshProUGUI _turnText;
     [SerializeField] private TextMeshProUGUI _turnSymbolText;
 
+    private NetworkVariable<int> _player1Score = new NetworkVariable<int>(0);
+    private NetworkVariable<int> _player2Score = new NetworkVariable<int>(0);
+    [SerializeField] private TextMeshProUGUI _player1ScoreText;
+    [SerializeField] private TextMeshProUGUI _player2ScoreText;
+
     [SerializeField] private GameObject _turnUI;
     [SerializeField] private GameObject _resultUI;
     [SerializeField] private TextMeshProUGUI _resultText;
@@ -64,6 +69,8 @@ public class GameManager : NetworkBehaviour
         _currentTurn.OnValueChanged += (oldVal, newVal) => { UpdateTurnText(); UpdateBoardInteractable(); };
         _player1SquareState.OnValueChanged += (oldVal, newVal) => UpdatePlayerTexts();
         _player2SquareState.OnValueChanged += (oldVal, newVal) => UpdatePlayerTexts();
+        _player1Score.OnValueChanged += (oldVal, newVal) => UpdateScoreTexts();
+        _player2Score.OnValueChanged += (oldVal, newVal) => UpdateScoreTexts();
         _currentGameState.OnValueChanged += (oldVal, newVal) => { OnGameStateChanged(newVal); UpdateBoardInteractable(); };
         _winningLineIndex.OnValueChanged += (oldVal, newVal) =>
         {
@@ -75,18 +82,27 @@ public class GameManager : NetworkBehaviour
 
         if (IsServer)
         {
+            _board.Clear();
             for (int i = 0; i < 9; i++)
                 _board.Add((int)GridSquareState.empty);
 
-            NetworkManager.OnClientDisconnectCallback += HandleClientDisconnected;
+            _clientTurnMap.Clear();
+            _player1Score.Value = 0;
+            _player2Score.Value = 0;
+
+            NetworkManager.OnClientDisconnectCallback += OnPlayerDisconnected;
         }
 
         _gridManager.ResetGrid();
 
         UpdatePlayerTexts();
         UpdateTurnText();
+
         RepaintBoardFromNetwork();
+        RepaintWinningLinesFromNetwork();
+        
         UpdateBoardInteractable();
+        UpdateScoreTexts();
 
         RequestAssignmentRpc();
     }
@@ -95,8 +111,11 @@ public class GameManager : NetworkBehaviour
     {
         if (IsServer)
         {
-            NetworkManager.OnClientDisconnectCallback -= HandleClientDisconnected;
+            NetworkManager.OnClientDisconnectCallback -= OnPlayerDisconnected;
         }
+
+        _myTurnAssigned = false;
+        _clientTurnMap.Clear();
     }
 
     private void HandleClientDisconnected(ulong clientId)
@@ -123,7 +142,6 @@ public class GameManager : NetworkBehaviour
     private void ReassignRemainingPlayer()
     {
         // If exactly one player remains, make them player1Turn and clear the map
-        // so the next joiner cleanly becomes player2Turn.
         if (_clientTurnMap.Count == 1)
         {
             var remaining = new List<ulong>(_clientTurnMap.Keys);
@@ -229,7 +247,14 @@ public class GameManager : NetworkBehaviour
 
         if (winner != GridSquareState.empty)
         {
-            _currentGameState.Value = (winner == _player1SquareState.Value) ? GameState.p1Win : GameState.p2Win;
+            bool isPlayer1Win = winner == _player1SquareState.Value;
+            _currentGameState.Value = isPlayer1Win ? GameState.p1Win : GameState.p2Win;
+
+            if (isPlayer1Win)
+                _player1Score.Value++;
+            else
+                _player2Score.Value++;
+
             return true;
         }
         else if (gridFull)
@@ -300,11 +325,25 @@ public class GameManager : NetworkBehaviour
         }
     }
 
+    private void RepaintWinningLinesFromNetwork()
+    {
+        for (int i = 0; i < _winningLines.Count; i++)
+        {
+            _winningLines[i].SetActive(i == _winningLineIndex.Value);
+        }
+    }
+
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     public void RequestRestartRpc()
     {
         if (_currentGameState.Value == GameState.onGoing) return;
         StartNewGame();
+    }
+
+    private void UpdateScoreTexts()
+    {
+        if (_player1ScoreText != null) _player1ScoreText.text = _player1Score.Value.ToString();
+        if (_player2ScoreText != null) _player2ScoreText.text = _player2Score.Value.ToString();
     }
 
     private void OnBoardChanged(NetworkListEvent<int> change)
@@ -398,6 +437,31 @@ public class GameManager : NetworkBehaviour
         _resultUI.SetActive(true);
         _turnUI.SetActive(false);
         if (_restartButton != null) _restartButton.interactable = true;
+    }
+
+    private void OnPlayerDisconnected(ulong clientId)
+    {
+        Debug.Log($"[GameManager] OnPlayerDisconnected called for {clientId}, IsServer={IsServer}");
+
+        if (!IsServer) return;
+
+        if (!_clientTurnMap.ContainsKey(clientId)) return;
+
+        _clientTurnMap.Remove(clientId);
+
+        for (int i = 0; i < _board.Count; i++)
+        {
+            _board[i] = (int)GridSquareState.empty;
+        }
+
+        DisableAllWinningLinesServer();
+        _currentGameState.Value = GameState.waitingForPlayers;
+        _waitingInput = false;
+
+        _player1Score.Value = 0;
+        _player2Score.Value = 0;
+
+        ReassignRemainingPlayer();
     }
 }
 

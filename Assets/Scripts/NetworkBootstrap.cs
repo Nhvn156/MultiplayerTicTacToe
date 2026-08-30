@@ -2,6 +2,7 @@ using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Collections;
 
 public class NetworkBootstrap : MonoBehaviour
 {
@@ -10,7 +11,8 @@ public class NetworkBootstrap : MonoBehaviour
     [SerializeField] private TMP_InputField _roomNameInput;
     [SerializeField] private LanDiscovery _lanDiscovery;
     [SerializeField] private JoinScreenUI _joinScreenUI;
-    [SerializeField] private GameObject _menuPanel; 
+    [SerializeField] private GameObject _menuPanel;
+    [SerializeField] private GameObject _menuLayer; 
 
     private void Start()
     {
@@ -20,6 +22,20 @@ public class NetworkBootstrap : MonoBehaviour
 
     private void OnHostClicked()
     {
+        if (NetworkManager.Singleton.ShutdownInProgress || NetworkManager.Singleton.IsListening)
+        {
+            Debug.LogWarning("Network is still active/shutting down — please wait a moment and try again.");
+            return;
+        }
+
+        StartCoroutine(HostAfterCleanFrame());
+    }
+
+    private IEnumerator HostAfterCleanFrame()
+    {
+        // Wait 1 frame to allow Unity to complete destroying old NetworkObjects
+        yield return null;
+
         string roomName = string.IsNullOrWhiteSpace(_roomNameInput.text)
             ? "Untitled Game"
             : _roomNameInput.text;
@@ -28,7 +44,8 @@ public class NetworkBootstrap : MonoBehaviour
         if (started)
         {
             _lanDiscovery.StartAdvertising(roomName);
-            if (_menuPanel != null) _menuPanel.SetActive(false); 
+            if (_menuLayer != null) _menuLayer.SetActive(false);
+            if (_menuPanel != null) _menuPanel.SetActive(false);
         }
         else
         {
